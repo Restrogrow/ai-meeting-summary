@@ -506,6 +506,27 @@ function MeetingView({ m, onDelete, onRetry }: { m: Meeting; onDelete: () => voi
 
 function Summary({ m }: { m: Meeting }) {
   const [showTranscript, setShowTranscript] = useState(false);
+  const [transcript, setTranscript] = useState(m.transcript);
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+  const [transcriptError, setTranscriptError] = useState("");
+
+  // Transcript is created on first click only, then saved
+  async function toggleTranscript() {
+    if (showTranscript || transcript) return setShowTranscript((s) => !s);
+    setLoadingTranscript(true);
+    setTranscriptError("");
+    try {
+      const res = await fetch(`/api/meetings/${m.id}/transcript`, { method: "POST" });
+      const data = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+      if (!res.ok) throw new Error(data.error || "Transcript failed");
+      setTranscript(data.transcript);
+      setShowTranscript(true);
+    } catch (e) {
+      setTranscriptError(e instanceof Error ? e.message : "Transcript failed");
+    } finally {
+      setLoadingTranscript(false);
+    }
+  }
 
   return (
     <>
@@ -550,12 +571,20 @@ function Summary({ m }: { m: Meeting }) {
       </div>
 
       <Section title="Transcript">
-        <button onClick={() => setShowTranscript((s) => !s)} className="text-sm text-indigo-600 hover:underline">
-          {showTranscript ? "Hide transcript" : "Show full transcript"}
-        </button>
-        {showTranscript && (
+        {loadingTranscript ? (
+          <div className="flex items-center gap-3 text-sm text-zinc-600">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+            Writing the transcript… about a minute per hour of meeting
+          </div>
+        ) : (
+          <button onClick={toggleTranscript} className="text-sm text-indigo-600 hover:underline">
+            {showTranscript ? "Hide transcript" : "Show full transcript"}
+          </button>
+        )}
+        {transcriptError && <p className="mt-2 text-sm text-red-700">{transcriptError}</p>}
+        {showTranscript && transcript && (
           <pre className="mt-3 whitespace-pre-wrap font-sans text-sm text-zinc-700 leading-relaxed max-h-[60vh] overflow-y-auto">
-            {m.transcript}
+            {transcript}
           </pre>
         )}
       </Section>
