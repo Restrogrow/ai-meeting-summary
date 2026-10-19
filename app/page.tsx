@@ -3,17 +3,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type ActionItem = { owner: string; task: string; due: string };
+type Status = "processing" | "done" | "failed";
 type Meeting = {
   id: number;
   title: string;
   created_at: string;
-  overview: string;
+  status: Status;
+  error: string | null;
+  audio_url?: string | null;
+  overview: string | null;
   decisions: string[];
   action_items: ActionItem[];
   questions: string[];
-  transcript: string;
+  transcript: string | null;
 };
-type MeetingRow = Pick<Meeting, "id" | "title" | "created_at">;
+type MeetingRow = Pick<Meeting, "id" | "title" | "created_at" | "status">;
+
+// A summary still "processing" after this long was most likely cut off (e.g. server restart)
+const STUCK_AFTER_MS = 15 * 60 * 1000;
 
 const fmtDate = (s: string) =>
   new Date(s).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
@@ -36,12 +43,40 @@ export default function Home() {
     loadList();
   }, [loadList]);
 
-  async function openMeeting(id: number) {
+  const openMeeting = useCallback(async (id: number) => {
     const res = await fetch(`/api/meetings/${id}`);
     if (res.ok) setSelected(await res.json());
+  }, []);
+
+  // While a summary is being written, check every 5s until it's done or failed
+  const pollId = selected?.status === "processing" ? selected.id : null;
+  useEffect(() => {
+    if (pollId === null) return;
+    const t = setInterval(async () => {
+      const res = await fetch(`/api/meetings/${pollId}`);
+      if (!res.ok) return;
+      const m: Meeting = await res.json();
+      if (m.status === "processing") return;
+      // Keep the existing signed audio URL so the player doesn't reload mid-playback
+      setSelected((cur) => (cur?.id === m.id ? { ...m, audio_url: cur.audio_url ?? m.audio_url } : cur));
+      loadList();
+    }, 5000);
+    return () => clearInterval(t);
+  }, [pollId, loadList]);
+
+  async function retryMeeting(id: number) {
+    const res = await fetch(`/api/meetings/${id}`, { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || "Could not retry");
+      return;
+    }
+    setSelected((cur) => (cur?.id === id ? { ...cur, status: "processing", error: null } : cur));
+    loadList();
   }
 
   async function deleteMeeting(id: number) {
+    if (!confirm("Delete this meeting and its recording?")) return;
     await fetch(`/api/meetings/${id}`, { method: "DELETE" });
     setSelected(null);
     loadList();
@@ -83,7 +118,10 @@ export default function Home() {
                 }`}
               >
                 <div className="font-medium truncate">{m.title}</div>
-                <div className="text-xs text-zinc-500">{fmtDate(m.created_at)}</div>
+                <div className="text-xs text-zinc-500 flex items-center gap-2">
+                  {fmtDate(m.created_at)}
+                  <StatusBadge status={m.status} />
+                </div>
               </button>
             </li>
           ))}
@@ -92,12 +130,17 @@ export default function Home() {
 
       <main className="flex-1 p-4 md:p-8 max-w-4xl w-full mx-auto">
         {selected ? (
-          <MeetingView m={selected} onDelete={() => deleteMeeting(selected.id)} />
+          <MeetingView
+            key={selected.id}
+            m={selected}
+            onDelete={() => deleteMeeting(selected.id)}
+            onRetry={() => retryMeeting(selected.id)}
+          />
         ) : (
           <NewMeeting
             onCreated={(m) => {
-              setSelected(m);
               loadList();
+              openMeeting(m.id);
             }}
           />
         )}
@@ -147,26 +190,47 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
   const [seconds, setSeconds] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Recording that hasn't reached the server yet — kept so it's never lost
+  const [pending, setPending] = useState<{ blob: Blob; name: string } | null>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const streamsRef = useRef<MediaStream[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Warn before closing the tab while a recording would be lost
+  useEffect(() => {
+    if (!recording && !busy && !pending) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [recording, busy, pending]);
+
   async function upload(blob: Blob, name: string) {
     setBusy(true);
     setError("");
+    setPending({ blob, name });
     const form = new FormData();
     form.append("audio", blob, name);
     form.append("title", title);
     try {
       const res = await fetch("/api/meetings", { method: "POST", body: form });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
       if (!res.ok) throw new Error(data.error || "Something went wrong");
+      setPending(null);
       onCreated(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  function downloadPending() {
+    if (!pending) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(pending.blob);
+    a.download = pending.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   }
 
   async function start() {
@@ -235,8 +299,36 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
       {busy ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center">
           <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
-          <p className="mt-4 font-medium">Creating your summary…</p>
-          <p className="text-sm text-zinc-500">This takes about 30 seconds to a few minutes, depending on meeting length.</p>
+          <p className="mt-4 font-medium">Saving your recording…</p>
+          <p className="text-sm text-zinc-500">Keep this tab open until it&apos;s uploaded.</p>
+        </div>
+      ) : pending ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 space-y-3">
+          <p className="font-medium text-red-800">Your recording couldn&apos;t be saved to the server</p>
+          <p className="text-sm text-red-700">{error}</p>
+          <p className="text-sm text-zinc-600">It&apos;s still kept in this tab. Try again, or download it and upload it later.</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => upload(pending.blob, pending.name)}
+              className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700"
+            >
+              Try again
+            </button>
+            <button onClick={downloadPending} className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm hover:bg-zinc-50">
+              Download recording
+            </button>
+            <button
+              onClick={() => {
+                if (confirm("Discard this recording? It can't be recovered.")) {
+                  setPending(null);
+                  setError("");
+                }
+              }}
+              className="rounded-lg px-4 py-2 text-sm text-zinc-500 hover:text-red-700"
+            >
+              Discard
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
@@ -281,20 +373,29 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
         </div>
       )}
 
-      {error && <p className="rounded-lg bg-red-50 text-red-700 px-4 py-3 text-sm">{error}</p>}
+      {error && !pending && <p className="rounded-lg bg-red-50 text-red-700 px-4 py-3 text-sm">{error}</p>}
     </div>
   );
 }
 
-function MeetingView({ m, onDelete }: { m: Meeting; onDelete: () => void }) {
+function StatusBadge({ status }: { status: Status }) {
+  if (status === "processing")
+    return <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[10px] font-medium">Summarizing</span>;
+  if (status === "failed")
+    return <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-[10px] font-medium">Failed</span>;
+  return null;
+}
+
+function MeetingView({ m, onDelete, onRetry }: { m: Meeting; onDelete: () => void; onRetry: () => void }) {
+  const [now] = useState(() => Date.now());
+  const stuck = m.status === "processing" && now - new Date(m.created_at).getTime() > STUCK_AFTER_MS;
   const [copied, setCopied] = useState(false);
-  const [showTranscript, setShowTranscript] = useState(false);
 
   function copy() {
     const lines = [
       `*${m.title}* (${fmtDate(m.created_at)})`,
       "",
-      m.overview,
+      m.overview ?? "",
       ...(m.decisions.length ? ["", "*Decisions*", ...m.decisions.map((d) => `• ${d}`)] : []),
       ...(m.action_items.length
         ? ["", "*Action items*", ...m.action_items.map((a) => `• ${a.owner}: ${a.task} (due: ${a.due})`)]
@@ -314,9 +415,11 @@ function MeetingView({ m, onDelete }: { m: Meeting; onDelete: () => void }) {
           <p className="text-sm text-zinc-500">{fmtDate(m.created_at)}</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={copy} className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
-            {copied ? "Copied ✓" : "Copy summary"}
-          </button>
+          {m.status === "done" && (
+            <button onClick={copy} className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
+              {copied ? "Copied ✓" : "Copy summary"}
+            </button>
+          )}
           <button
             onClick={onDelete}
             className="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-600 hover:bg-red-50 hover:text-red-700 hover:border-red-200"
@@ -326,6 +429,54 @@ function MeetingView({ m, onDelete }: { m: Meeting; onDelete: () => void }) {
         </div>
       </header>
 
+      {m.audio_url && (
+        <Section title="Recording">
+          <audio controls preload="metadata" src={m.audio_url} className="w-full" />
+          <a href={m.audio_url} download className="mt-2 inline-block text-sm text-indigo-600 hover:underline">
+            Download recording
+          </a>
+        </Section>
+      )}
+
+      {m.status === "processing" && (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
+          <p className="mt-4 font-medium">Creating your summary…</p>
+          <p className="text-sm text-zinc-500">
+            Your recording is saved. This takes about 30 seconds to a few minutes — you can leave this page and come back.
+          </p>
+          {stuck && (
+            <div className="mt-4 space-y-2">
+              <p className="text-sm text-amber-700">This is taking unusually long and may have been interrupted.</p>
+              <button onClick={onRetry} className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
+                Retry summary
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {m.status === "failed" && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 space-y-3">
+          <p className="font-medium text-red-800">The summary couldn&apos;t be created</p>
+          <p className="text-sm text-red-700 break-words">{m.error || "Unknown error"}</p>
+          <p className="text-sm text-zinc-600">Your recording is saved, so nothing is lost.</p>
+          <button onClick={onRetry} className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
+            Retry summary
+          </button>
+        </div>
+      )}
+
+      {m.status === "done" && <Summary m={m} />}
+    </article>
+  );
+}
+
+function Summary({ m }: { m: Meeting }) {
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  return (
+    <>
       <Section title="Overview">
         <p className="text-zinc-700 leading-relaxed">{m.overview}</p>
       </Section>
@@ -376,7 +527,7 @@ function MeetingView({ m, onDelete }: { m: Meeting; onDelete: () => void }) {
           </pre>
         )}
       </Section>
-    </article>
+    </>
   );
 }
 

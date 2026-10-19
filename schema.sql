@@ -10,3 +10,9 @@ create table if not exists meetings (
   transcript text
 );
 alter table meetings enable row level security;
+
+-- Saved recordings + summary status (run once in Supabase → SQL Editor)
+alter table meetings add column if not exists status text not null default 'done'
+  check (status in ('processing', 'done', 'failed'));
+alter table meetings add column if not exists error text;
+alter table meetings add column if not exists audio_path text;

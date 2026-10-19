@@ -32,4 +32,4 @@ Tip: in Chrome, menu → **Cast, save and share → Install page as app** gives 
 
 ## Database
 
-The `meetings` table is defined in `schema.sql` (already created in the Supabase project). Audio is never stored — only the summary and transcript.
+The `meetings` table is defined in `schema.sql`. Recordings are saved in a private Supabase Storage bucket `recordings` (created automatically) so you can play them back and retry a failed summary. Deleting a meeting also deletes its recording.

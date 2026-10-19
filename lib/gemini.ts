@@ -44,7 +44,7 @@ function geminiMime(type: string) {
   return base.endsWith("/webm") ? "video/webm" : base;
 }
 
-export async function summarizeAudio(file: File): Promise<Summary> {
+export async function summarizeAudio(file: Blob): Promise<Summary> {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
   let uploaded = await ai.files.upload({ file, config: { mimeType: geminiMime(file.type) } });
