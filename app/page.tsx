@@ -476,7 +476,17 @@ function MeetingView({ m, onDelete, onSummarize }: { m: Meeting; onDelete: () =>
         </Section>
       )}
 
-      {m.status === "saved" && (
+      {/* Recorded with the Chrome extension: the audio stays on that computer */}
+      {!m.audio_url && m.status !== "done" && m.status !== "processing" && (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center space-y-2">
+          <p className="font-medium">Recorded with the Chrome extension</p>
+          <p className="text-sm text-zinc-500">
+            The recording is saved on the computer that recorded it. Open the Meeting Notes extension there to create the summary.
+          </p>
+        </div>
+      )}
+
+      {m.status === "saved" && m.audio_url && (
         <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center space-y-3">
           <p className="font-medium">Recording saved — no summary yet</p>
           <p className="text-sm text-zinc-500">
@@ -506,7 +516,7 @@ function MeetingView({ m, onDelete, onSummarize }: { m: Meeting; onDelete: () =>
         </div>
       )}
 
-      {m.status === "failed" && (
+      {m.status === "failed" && m.audio_url && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-6 space-y-3">
           <p className="font-medium text-red-800">The summary couldn&apos;t be created</p>
           <p className="text-sm text-red-700 break-words">{m.error || "Unknown error"}</p>

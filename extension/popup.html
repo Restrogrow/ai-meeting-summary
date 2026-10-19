@@ -49,8 +49,8 @@
         <div class="row"><span class="spin"></span> Saving recording…</div>
       </div>
       <div id="recFailed" hidden>
-        <p class="error">Upload failed: <span id="failMsg"></span></p>
-        <p class="hint">The recording is kept safe here (and in Downloads if enabled).</p>
+        <p class="error">Couldn't add it to your meetings: <span id="failMsg"></span></p>
+        <p class="hint">The recording is safe on this computer (and in Downloads if enabled).</p>
         <div class="row gap">
           <button id="retryBtn" class="btn primary">Try again</button>
           <button id="discardBtn" class="btn ghost">Discard</button>
@@ -74,6 +74,7 @@
   </section>
 
   <script src="api.js"></script>
+  <script src="db.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

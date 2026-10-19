@@ -16,17 +16,27 @@ export async function GET(req: NextRequest) {
 }
 
 // Save audio (server disk + Supabase) → create meeting. The summary is only made when asked for.
+// JSON body { title } = the extension, which keeps the recording on the user's computer.
 export async function POST(req: NextRequest) {
   if (!isAuthed(req)) return unauthorized();
+
+  if (req.headers.get("content-type")?.includes("application/json")) {
+    const { title } = await req.json().catch(() => ({ title: "" }));
+    const { data, error } = await db()
+      .from("meetings")
+      .insert({ title: String(title ?? "").trim() || defaultTitle(), status: "saved" })
+      .select()
+      .single();
+    if (error) return Response.json({ error: error.message }, { status: 500 });
+    return Response.json(data);
+  }
 
   const form = await req.formData();
   const audio = form.get("audio");
   if (!(audio instanceof File) || audio.size === 0) {
     return Response.json({ error: "No audio received" }, { status: 400 });
   }
-  const title =
-    String(form.get("title") ?? "").trim() ||
-    `Meeting – ${new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}`;
+  const title = String(form.get("title") ?? "").trim() || defaultTitle();
 
   const ext = audio.name.split(".").pop()?.toLowerCase() || "webm";
   const audioPath = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${ext}`;
@@ -72,3 +82,6 @@ export async function POST(req: NextRequest) {
 
   return Response.json(data);
 }
+
+const defaultTitle = () =>
+  `Meeting – ${new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}`;

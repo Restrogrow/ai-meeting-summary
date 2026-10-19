@@ -1,9 +1,9 @@
-// Records tab audio (+ mic) and uploads it. Offscreen documents only get chrome.runtime,
-// so the server URL and token arrive with the start message.
+// Records tab audio (+ mic), keeps it on this computer and registers the meeting.
+// Offscreen documents only get chrome.runtime, so the server URL and token arrive with the start message.
 let rec = null;
 let ctx = null;
 let streams = [];
-let pending = null; // { blob, name } kept until the server has it
+let pendingKey = null; // saved recording whose meeting isn't on the server yet
 let conn = null; // { server, token }
 
 const toBackground = (msg) => chrome.runtime.sendMessage({ target: "background", ...msg });
@@ -15,8 +15,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     return true;
   }
   if (msg.type === "stop") stop(msg.title);
-  if (msg.type === "retry" && pending) upload(msg.title);
-  if (msg.type === "discard") pending = null;
+  if (msg.type === "retry" && pendingKey) register(pendingKey);
+  if (msg.type === "discard" && pendingKey) {
+    deleteRecording(pendingKey);
+    pendingKey = null;
+  }
   reply({ ok: true });
 });
 
@@ -40,14 +43,23 @@ async function start({ streamId, useMic, keepCopy, server, token }) {
   rec = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: 32000 });
   const chunks = [];
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  rec.onstop = () => {
+  rec.onstop = async () => {
     streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
     ctx.close();
     const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "-");
     const name = `meeting-${stamp}.webm`;
-    pending = { blob: new Blob(chunks, { type: rec.mimeType || "audio/webm" }), name };
-    if (keepCopy) toBackground({ type: "save-copy", url: URL.createObjectURL(pending.blob), name });
-    upload(rec.title);
+    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+    const key = crypto.randomUUID();
+    try {
+      await saveRecording({ key, meetingId: null, title: rec.title || "", name, blob, createdAt: Date.now() });
+    } catch (e) {
+      // Can't keep it in the extension — make sure there's at least the Downloads copy
+      keepCopy = true;
+      console.error("Could not save recording locally", e);
+    }
+    if (keepCopy) toBackground({ type: "save-copy", url: URL.createObjectURL(blob), name });
+    pendingKey = key;
+    register(key);
   };
   tab.getAudioTracks()[0].onended = () => toBackground({ type: "track-ended" });
 
@@ -61,22 +73,21 @@ function stop(title) {
   rec.stop();
 }
 
-async function upload(title) {
-  if (!pending) return;
-  const form = new FormData();
-  form.append("audio", pending.blob, pending.name);
-  form.append("title", title || "");
+// Create the meeting on the server (no audio is sent) and link it to the saved recording
+async function register(key) {
   try {
+    const saved = await getRecording(key);
     const res = await fetch(`${conn.server}/api/meetings`, {
       method: "POST",
-      headers: { "x-team-token": conn.token },
-      body: form,
+      headers: { "Content-Type": "application/json", "x-team-token": conn.token },
+      body: JSON.stringify({ title: saved?.title || "" }),
     });
     const data = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
     if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
-    pending = null;
+    if (saved) await saveRecording({ ...saved, meetingId: data.id });
+    pendingKey = null;
     toBackground({ type: "uploaded", meeting: data });
   } catch (e) {
-    toBackground({ type: "upload-failed", error: e.message || "Upload failed" });
+    toBackground({ type: "upload-failed", error: e.message || "Could not reach the server" });
   }
 }

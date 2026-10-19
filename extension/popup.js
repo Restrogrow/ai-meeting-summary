@@ -208,6 +208,7 @@ function badge(status) {
 
 // ---------- Meeting detail ----------
 $("backBtn").onclick = () => openMain();
+$("backBtn").addEventListener("click", () => audioUrl && URL.revokeObjectURL(audioUrl));
 
 async function openMeeting(id) {
   view("detail");
@@ -222,28 +223,102 @@ async function openMeeting(id) {
   }
 }
 
-function renderMeeting(m) {
+let audioUrl = null;
+
+// Player + save button for the copy kept on this computer, or a way to attach the file
+function recordingSection(m, local) {
+  if (m.audio_url) return null; // saved on the server (web app recording) — play it in the app
+  if (audioUrl) URL.revokeObjectURL(audioUrl);
+  if (local) {
+    audioUrl = URL.createObjectURL(local.blob);
+    return sec(
+      "Recording (on this computer)",
+      el("audio", { controls: true, src: audioUrl, style: "width:100%" }),
+      el("button", {
+        className: "link small",
+        textContent: "Save file to Downloads",
+        onclick: () => chrome.downloads.download({ url: audioUrl, filename: local.name }),
+      }),
+    );
+  }
+  const input = el("input", {
+    type: "file",
+    accept: "audio/*,video/*",
+    onchange: async () => {
+      const f = input.files[0];
+      if (!f) return;
+      await saveRecording({ key: crypto.randomUUID(), meetingId: m.id, title: m.title, name: f.name, blob: f, createdAt: Date.now() });
+      renderMeeting(m);
+    },
+  });
+  return sec(
+    "Recording",
+    el("p", { className: "hint", textContent: "Not on this computer. Pick the file (e.g. from Downloads) to create the summary." }),
+    input,
+  );
+}
+
+// Summary/transcript: server-saved audio → ask the server; local recording → background uploads it to Gemini first
+async function requestSummary(m) {
+  if (m.audio_url) return api(`/api/meetings/${m.id}`, { method: "POST" });
+  const res = await toBg({ type: "summarize", meetingId: m.id });
+  if (!res?.ok) throw new Error(res?.error || "Could not start the summary");
+}
+
+async function requestTranscript(m) {
+  if (m.transcript) return m.transcript;
+  if (m.audio_url) return (await api(`/api/meetings/${m.id}/transcript`, { method: "POST" })).transcript;
+  const res = await toBg({ type: "transcript", meetingId: m.id });
+  if (!res?.ok) throw new Error(res?.error || "Transcript failed");
+  return res.transcript;
+}
+
+async function renderMeeting(m) {
   clearInterval(pollId);
   $("dTitle").textContent = m.title;
   $("dDate").textContent = fmtDate(m.created_at);
   const body = $("dBody");
+  const local = m.audio_url ? null : await getRecordingFor(m.id).catch(() => null);
+  const { jobs = {} } = await chrome.storage.session.get("jobs");
+  const recording = recordingSection(m, local);
   const openInApp = el("button", {
     className: "btn ghost",
     textContent: "Open in app ↗",
     onclick: async () => chrome.tabs.create({ url: (await getSettings()).server }),
   });
 
+  if (jobs[m.id] === "summary") {
+    body.replaceChildren(
+      el(
+        "div",
+        { className: "sec center-box" },
+        el("div", { className: "row", style: "justify-content:center" }, el("span", { className: "spin" }), "Sending recording to Gemini…"),
+        el("p", { className: "hint", textContent: "Goes straight from this computer. You can close this popup." }),
+      ),
+      recording,
+    );
+    pollId = setInterval(async () => {
+      const { jobs = {} } = await chrome.storage.session.get("jobs");
+      if (!jobs[m.id]) openMeeting(m.id);
+    }, 2000);
+    return;
+  }
+
   if (m.status === "saved" || m.status === "failed") {
+    const canSummarize = !!(m.audio_url || local);
     const btn = el("button", {
       className: "btn primary",
+      disabled: !canSummarize,
       textContent: m.status === "failed" ? "Retry summary" : "✨ Create summary",
       onclick: async () => {
         btn.disabled = true;
+        btn.textContent = m.audio_url ? "Starting…" : "Sending recording to Gemini…";
         try {
-          await api(`/api/meetings/${m.id}`, { method: "POST" });
+          await requestSummary(m);
           renderMeeting({ ...m, status: "processing" });
         } catch (e) {
           btn.disabled = false;
+          btn.textContent = "Retry summary";
           body.append(el("p", { className: "error", textContent: e.message }));
         }
       },
@@ -263,6 +338,7 @@ function renderMeeting(m) {
             ],
         el("div", { className: "actions", style: "justify-content:center" }, btn, openInApp),
       ),
+      recording,
     );
     return;
   }
@@ -275,6 +351,7 @@ function renderMeeting(m) {
         el("div", { className: "row", style: "justify-content:center" }, el("span", { className: "spin" }), "Creating summary…"),
         el("p", { className: "hint", textContent: "Takes 30 seconds to a few minutes. You can close this popup." }),
       ),
+      recording,
     );
     pollId = setInterval(async () => {
       const fresh = await api(`/api/meetings/${m.id}`).catch(() => null);
@@ -306,6 +383,7 @@ function renderMeeting(m) {
     sec("Decisions", bullets(m.decisions)),
     sec("Open questions", bullets(m.questions)),
     sec("Transcript", transcriptBtn, transcriptBox),
+    recording,
   );
 }
 
@@ -322,9 +400,8 @@ async function toggleTranscript(m, btn, box) {
   btn.disabled = true;
   btn.textContent = m.transcript ? "Loading…" : "Writing transcript… (about a minute per hour)";
   try {
-    const text = m.transcript || (await api(`/api/meetings/${m.id}/transcript`, { method: "POST" })).transcript;
-    m.transcript = text;
-    box.replaceChildren(el("p", { textContent: text, style: "white-space:pre-wrap;max-height:260px;overflow:auto" }));
+    m.transcript = await requestTranscript(m);
+    box.replaceChildren(el("p", { textContent: m.transcript, style: "white-space:pre-wrap;max-height:260px;overflow:auto" }));
     btn.textContent = "Hide transcript";
   } catch (e) {
     btn.textContent = "Show full transcript";

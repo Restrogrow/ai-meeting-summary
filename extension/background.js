@@ -1,4 +1,46 @@
-importScripts("api.js");
+importScripts("api.js", "db.js");
+
+// Summary/transcript jobs in flight, so a reopened popup shows them: { [meetingId]: "summary" | "transcript" }
+async function setJob(id, job) {
+  const { jobs = {} } = await chrome.storage.session.get("jobs");
+  if (job) jobs[id] = job;
+  else delete jobs[id];
+  await chrome.storage.session.set({ jobs });
+}
+
+// Local recording → straight to Gemini (the server only hands out the upload URL) → "files/…" name
+async function uploadToGemini(meetingId) {
+  const saved = await getRecordingFor(meetingId);
+  if (!saved) throw Object.assign(new Error("The recording isn't on this computer"), { code: "no-local" });
+  const { uploadUrl } = await api("/api/gemini-upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mimeType: saved.blob.type, size: saved.blob.size, name: saved.name }),
+  });
+  const res = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "X-Goog-Upload-Offset": "0", "X-Goog-Upload-Command": "upload, finalize" },
+    body: saved.blob,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.file?.name) throw new Error(data.error?.message || `Upload to Gemini failed (${res.status})`);
+  return data.file.name;
+}
+
+async function runJob(meetingId, job) {
+  await setJob(meetingId, job);
+  try {
+    const geminiFile = await uploadToGemini(meetingId);
+    const path = job === "summary" ? `/api/meetings/${meetingId}` : `/api/meetings/${meetingId}/transcript`;
+    return await api(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ geminiFile }),
+    });
+  } finally {
+    await setJob(meetingId, null);
+  }
+}
 
 // Recording state lives in session storage so the popup can show it after reopening:
 // { phase: "idle" | "recording" | "uploading" | "failed", startedAt, title, tabId, error, meetingId }
@@ -61,6 +103,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         return startRecording(msg.tabId, msg.title);
       case "stop":
         return stopRecording();
+      case "summarize":
+        await runJob(msg.meetingId, "summary");
+        return;
+      case "transcript":
+        return { transcript: (await runJob(msg.meetingId, "transcript")).transcript };
       case "retry-upload":
         await setState({ ...cur, phase: "uploading", error: "" });
         badge("…", "#4f46e5");
@@ -84,7 +131,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         chrome.notifications.create({
           type: "basic",
           iconUrl: "icons/128.png",
-          title: "Recording saved",
+          title: "Recording saved on this computer",
           message: `${msg.meeting.title} — open Meeting Notes to create the summary.`,
         });
         return;
@@ -94,14 +141,14 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         chrome.notifications.create({
           type: "basic",
           iconUrl: "icons/128.png",
-          title: "Recording not uploaded",
-          message: `${msg.error} — it's kept safe; open the extension to retry.`,
+          title: "Meeting not added to the list",
+          message: `${msg.error} — the recording is safe on this computer; open the extension to retry.`,
         });
         return;
     }
   })().then(
     (data) => reply({ ok: true, ...(data || {}) }),
-    (e) => reply({ ok: false, error: e.message }),
+    (e) => reply({ ok: false, error: e.message, code: e.code }),
   );
   return true;
 });

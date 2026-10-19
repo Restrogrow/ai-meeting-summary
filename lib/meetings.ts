@@ -3,6 +3,13 @@ import { BUCKET, db } from "@/lib/supabase";
 import { summarizeAudio, transcribeAudio } from "@/lib/gemini";
 import { readLocal } from "@/lib/local-audio";
 
+// Optional { geminiFile: "files/…" } in a JSON body
+export async function readGeminiFile(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  const name = body?.geminiFile;
+  return typeof name === "string" && /^files\/[\w-]+$/.test(name) ? name : undefined;
+}
+
 // Saved audio: local copy first, then Supabase
 async function loadAudio(id: number | string) {
   const supabase = db();
@@ -17,11 +24,11 @@ async function loadAudio(id: number | string) {
   return data;
 }
 
-// Saved audio → Gemini summary → row marked done (or failed with the reason)
-export async function processMeeting(id: number | string) {
+// Saved audio (or a Gemini file the browser uploaded) → summary → row marked done (or failed with the reason)
+export async function processMeeting(id: number | string, geminiFile?: string) {
   const supabase = db();
   try {
-    const summary = await summarizeAudio(await loadAudio(id));
+    const summary = await summarizeAudio(geminiFile ?? (await loadAudio(id)));
     const { error: upError } = await supabase
       .from("meetings")
       .update({ ...summary, status: "done", error: null })
@@ -35,8 +42,8 @@ export async function processMeeting(id: number | string) {
 }
 
 // Full transcript only when someone asks for it (it's the costliest part); saved so it's paid for once
-export async function transcribeMeeting(id: number | string) {
-  const transcript = await transcribeAudio(await loadAudio(id));
+export async function transcribeMeeting(id: number | string, geminiFile?: string) {
+  const transcript = await transcribeAudio(geminiFile ?? (await loadAudio(id)));
   if (!transcript) throw new Error("Gemini returned an empty transcript");
   const { error } = await db().from("meetings").update({ transcript }).eq("id", id);
   if (error) throw new Error(error.message);
