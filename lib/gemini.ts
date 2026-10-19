@@ -38,10 +38,9 @@ const SCHEMA = {
   required: ["overview", "decisions", "action_items", "questions", "transcript"],
 };
 
-// Gemini lists webm under video types; an audio-only webm is accepted that way.
+// Keep audio as audio: Gemini fails to process an audio-only webm labelled video/webm
 function geminiMime(type: string) {
-  const base = (type || "audio/webm").split(";")[0];
-  return base.endsWith("/webm") ? "video/webm" : base;
+  return (type || "audio/webm").split(";")[0];
 }
 
 export async function summarizeAudio(file: Blob): Promise<Summary> {
