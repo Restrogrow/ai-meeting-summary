@@ -12,13 +12,16 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/api/meetings/[id
   return Response.json({ ...data, audio_url: data.audio_path ? `/api/meetings/${id}/audio` : null });
 }
 
-// Retry the summary from the saved audio
+// Create (or retry) the summary from the saved audio — only ever on request
 export async function POST(req: NextRequest, ctx: RouteContext<"/api/meetings/[id]">) {
   if (!isAuthed(req)) return unauthorized();
+  if (!process.env.GEMINI_API_KEY) {
+    return Response.json({ error: "GEMINI_API_KEY is not set on the server" }, { status: 500 });
+  }
   const { id } = await ctx.params;
   const { data, error } = await db()
     .from("meetings")
-    .update({ status: "processing", error: null })
+    .update({ status: "processing", error: null, summary_requested_at: new Date().toISOString() })
     .eq("id", id)
     .not("audio_path", "is", null)
     .select("id")

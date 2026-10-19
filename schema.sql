@@ -16,3 +16,9 @@ alter table meetings add column if not exists status text not null default 'done
   check (status in ('processing', 'done', 'failed'));
 alter table meetings add column if not exists error text;
 alter table meetings add column if not exists audio_path text;
+
+-- Summaries on request only: new "saved" status (run once in Supabase → SQL Editor)
+alter table meetings drop constraint if exists meetings_status_check;
+alter table meetings add constraint meetings_status_check
+  check (status in ('saved', 'processing', 'done', 'failed'));
+alter table meetings add column if not exists summary_requested_at timestamptz;

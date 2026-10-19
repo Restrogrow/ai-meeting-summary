@@ -1,7 +1,6 @@
-import { after, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { isAuthed, unauthorized } from "@/lib/auth";
 import { BUCKET, db, ensureBucket } from "@/lib/supabase";
-import { processMeeting } from "@/lib/meetings";
 import { saveLocal } from "@/lib/local-audio";
 
 // List past meetings (newest first)
@@ -16,12 +15,9 @@ export async function GET(req: NextRequest) {
   return Response.json(data);
 }
 
-// Save audio (server disk + Supabase) → create meeting (processing) → summarize in the background
+// Save audio (server disk + Supabase) → create meeting. The summary is only made when asked for.
 export async function POST(req: NextRequest) {
   if (!isAuthed(req)) return unauthorized();
-  if (!process.env.GEMINI_API_KEY) {
-    return Response.json({ error: "GEMINI_API_KEY is not set on the server" }, { status: 500 });
-  }
 
   const form = await req.formData();
   const audio = form.get("audio");
@@ -66,7 +62,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await db()
     .from("meetings")
-    .insert({ title, status: "processing", audio_path: audioPath })
+    .insert({ title, status: "saved", audio_path: audioPath })
     .select()
     .single();
   if (error) {
@@ -74,6 +70,5 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: `Could not create the meeting: ${error.message}.${where}` }, { status: 500 });
   }
 
-  after(() => processMeeting(data.id));
   return Response.json(data);
 }

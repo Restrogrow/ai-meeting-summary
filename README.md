@@ -1,6 +1,6 @@
 # Meeting Notes
 
-AI meeting summaries for the team. Record a Google Meet tab (or upload a recording) → Gemini writes the overview, decisions, action items, open questions and transcript → saved in Supabase.
+AI meeting summaries for the team. Record a Google Meet tab (or upload a recording) → it's saved → click **Create summary** when you want notes (Gemini writes the overview, decisions, action items and open questions; the full transcript is made only when you open it). Nothing is sent to Gemini until you ask, so you only pay for what you use.
 
 Stack: Next.js (App Router) · Tailwind · Gemini API · Supabase (Postgres)
 

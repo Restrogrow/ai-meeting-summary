@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type ActionItem = { owner: string; task: string; due: string };
-type Status = "processing" | "done" | "failed";
+type Status = "saved" | "processing" | "done" | "failed";
 type Meeting = {
   id: number;
   title: string;
   created_at: string;
   status: Status;
   error: string | null;
+  summary_requested_at: string | null;
   audio_url?: string | null;
   overview: string | null;
   decisions: string[];
@@ -64,14 +65,16 @@ export default function Home() {
     return () => clearInterval(t);
   }, [pollId, loadList]);
 
-  async function retryMeeting(id: number) {
+  async function summarizeMeeting(id: number) {
     const res = await fetch(`/api/meetings/${id}`, { method: "POST" });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      alert(data.error || "Could not retry");
+      alert(data.error || "Could not start the summary");
       return;
     }
-    setSelected((cur) => (cur?.id === id ? { ...cur, status: "processing", error: null } : cur));
+    setSelected((cur) =>
+      cur?.id === id ? { ...cur, status: "processing", error: null, summary_requested_at: new Date().toISOString() } : cur,
+    );
     loadList();
   }
 
@@ -134,7 +137,7 @@ export default function Home() {
             key={selected.id}
             m={selected}
             onDelete={() => deleteMeeting(selected.id)}
-            onRetry={() => retryMeeting(selected.id)}
+            onSummarize={() => summarizeMeeting(selected.id)}
           />
         ) : (
           <NewMeeting
@@ -304,7 +307,7 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold">New meeting</h2>
-        <p className="text-zinc-500 text-sm mt-1">Record a Google Meet call or upload a recording. Gemini writes the notes.</p>
+        <p className="text-zinc-500 text-sm mt-1">Record a Google Meet call or upload a recording. It&apos;s saved first — create the AI summary whenever you need it.</p>
       </div>
 
       <input
@@ -411,6 +414,8 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
 }
 
 function StatusBadge({ status }: { status: Status }) {
+  if (status === "saved")
+    return <span className="rounded-full bg-zinc-100 text-zinc-600 px-2 py-0.5 text-[10px] font-medium">No summary</span>;
   if (status === "processing")
     return <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[10px] font-medium">Summarizing</span>;
   if (status === "failed")
@@ -418,9 +423,10 @@ function StatusBadge({ status }: { status: Status }) {
   return null;
 }
 
-function MeetingView({ m, onDelete, onRetry }: { m: Meeting; onDelete: () => void; onRetry: () => void }) {
+function MeetingView({ m, onDelete, onSummarize }: { m: Meeting; onDelete: () => void; onSummarize: () => void }) {
   const [now] = useState(() => Date.now());
-  const stuck = m.status === "processing" && now - new Date(m.created_at).getTime() > STUCK_AFTER_MS;
+  const stuck =
+    m.status === "processing" && now - new Date(m.summary_requested_at ?? m.created_at).getTime() > STUCK_AFTER_MS;
   const [copied, setCopied] = useState(false);
 
   function copy() {
@@ -470,6 +476,18 @@ function MeetingView({ m, onDelete, onRetry }: { m: Meeting; onDelete: () => voi
         </Section>
       )}
 
+      {m.status === "saved" && (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center space-y-3">
+          <p className="font-medium">Recording saved — no summary yet</p>
+          <p className="text-sm text-zinc-500">
+            The AI summary is only made when you ask, so you pay only for meetings you need notes for.
+          </p>
+          <button onClick={onSummarize} className="rounded-lg bg-indigo-600 text-white px-5 py-2.5 text-sm font-medium hover:bg-indigo-700">
+            ✨ Create summary
+          </button>
+        </div>
+      )}
+
       {m.status === "processing" && (
         <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center">
           <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-indigo-200 border-t-indigo-600" />
@@ -480,7 +498,7 @@ function MeetingView({ m, onDelete, onRetry }: { m: Meeting; onDelete: () => voi
           {stuck && (
             <div className="mt-4 space-y-2">
               <p className="text-sm text-amber-700">This is taking unusually long and may have been interrupted.</p>
-              <button onClick={onRetry} className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
+              <button onClick={onSummarize} className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
                 Retry summary
               </button>
             </div>
@@ -493,7 +511,7 @@ function MeetingView({ m, onDelete, onRetry }: { m: Meeting; onDelete: () => voi
           <p className="font-medium text-red-800">The summary couldn&apos;t be created</p>
           <p className="text-sm text-red-700 break-words">{m.error || "Unknown error"}</p>
           <p className="text-sm text-zinc-600">Your recording is saved, so nothing is lost.</p>
-          <button onClick={onRetry} className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
+          <button onClick={onSummarize} className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700">
             Retry summary
           </button>
         </div>
