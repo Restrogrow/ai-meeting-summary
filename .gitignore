@@ -20,6 +20,9 @@
 # production
 /build
 
+# meeting audio saved on the server
+/recordings/
+
 # misc
 .DS_Store
 *.pem

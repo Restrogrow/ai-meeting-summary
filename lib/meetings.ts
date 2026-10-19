@@ -1,8 +1,9 @@
 import "server-only";
 import { BUCKET, db } from "@/lib/supabase";
 import { summarizeAudio } from "@/lib/gemini";
+import { readLocal } from "@/lib/local-audio";
 
-// Saved audio → Gemini summary → row marked done (or failed with the reason)
+// Saved audio (local copy first, then Supabase) → Gemini summary → row marked done (or failed with the reason)
 export async function processMeeting(id: number | string) {
   const supabase = db();
   try {
@@ -10,8 +11,12 @@ export async function processMeeting(id: number | string) {
     if (error) throw new Error(error.message);
     if (!row.audio_path) throw new Error("No saved audio for this meeting");
 
-    const { data: audio, error: dlError } = await supabase.storage.from(BUCKET).download(row.audio_path);
-    if (dlError) throw new Error(`Could not load saved audio: ${dlError.message}`);
+    let audio = await readLocal(row.audio_path);
+    if (!audio) {
+      const { data, error: dlError } = await supabase.storage.from(BUCKET).download(row.audio_path);
+      if (dlError) throw new Error(`Could not load saved audio: ${dlError.message}`);
+      audio = data;
+    }
 
     const summary = await summarizeAudio(audio);
     const { error: upError } = await supabase

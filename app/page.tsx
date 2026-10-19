@@ -192,6 +192,18 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
   const [error, setError] = useState("");
   // Recording that hasn't reached the server yet — kept so it's never lost
   const [pending, setPending] = useState<{ blob: Blob; name: string } | null>(null);
+  // Also download every live recording to this computer (remembered per browser)
+  const [keepCopy, setKeepCopy] = useState(() => {
+    try {
+      return typeof window === "undefined" || localStorage.getItem("keepCopy") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const keepCopyRef = useRef(keepCopy);
+  useEffect(() => {
+    keepCopyRef.current = keepCopy;
+  }, [keepCopy]);
   const recRef = useRef<MediaRecorder | null>(null);
   const streamsRef = useRef<MediaStream[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -224,13 +236,16 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
     }
   }
 
-  function downloadPending() {
-    if (!pending) return;
+  function saveToComputer(blob: Blob, name: string) {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(pending.blob);
-    a.download = pending.name;
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  }
+
+  function downloadPending() {
+    if (pending) saveToComputer(pending.blob, pending.name);
   }
 
   async function start() {
@@ -262,7 +277,11 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
         if (timerRef.current) clearInterval(timerRef.current);
         setRecording(false);
         const type = rec.mimeType || "audio/webm";
-        upload(new Blob(chunks, { type }), `meeting.${type.includes("mp4") ? "m4a" : "webm"}`);
+        const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "-");
+        const name = `meeting-${stamp}.${type.includes("mp4") ? "m4a" : "webm"}`;
+        const blob = new Blob(chunks, { type });
+        if (keepCopyRef.current) saveToComputer(blob, name);
+        upload(blob, name);
       };
       // User clicked Chrome's "Stop sharing"
       display.getTracks().forEach((t) => (t.onended = () => rec.state === "recording" && rec.stop()));
@@ -349,6 +368,19 @@ function NewMeeting({ onCreated }: { onCreated: (m: Meeting) => void }) {
                 Start recording
               </button>
             )}
+            <label className="flex items-center gap-2 text-sm text-zinc-600">
+              <input
+                type="checkbox"
+                checked={keepCopy}
+                onChange={(e) => {
+                  setKeepCopy(e.target.checked);
+                  try {
+                    localStorage.setItem("keepCopy", e.target.checked ? "1" : "0");
+                  } catch {}
+                }}
+              />
+              Also save a copy to this computer (Downloads)
+            </label>
           </div>
 
           <label
@@ -432,7 +464,7 @@ function MeetingView({ m, onDelete, onRetry }: { m: Meeting; onDelete: () => voi
       {m.audio_url && (
         <Section title="Recording">
           <audio controls preload="metadata" src={m.audio_url} className="w-full" />
-          <a href={m.audio_url} download className="mt-2 inline-block text-sm text-indigo-600 hover:underline">
+          <a href={`${m.audio_url}?download=1`} className="mt-2 inline-block text-sm text-indigo-600 hover:underline">
             Download recording
           </a>
         </Section>

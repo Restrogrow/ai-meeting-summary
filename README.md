@@ -33,3 +33,13 @@ Tip: in Chrome, menu → **Cast, save and share → Install page as app** gives 
 ## Database
 
 The `meetings` table is defined in `schema.sql`. Recordings are saved in a private Supabase Storage bucket `recordings` (created automatically) so you can play them back and retry a failed summary. Deleting a meeting also deletes its recording.
+
+### Backup copies of recordings
+
+Every recording is kept in up to three places, so one failure never loses it:
+
+1. **Server disk** – `recordings/` in the app folder (change with `RECORDINGS_DIR`). Written first; summaries and playback use it when present.
+2. **Supabase Storage** – bucket `recordings`. Used if the disk copy is missing.
+3. **Your computer** – live recordings are also downloaded to your Downloads folder (checkbox under *Start recording*).
+
+If Supabase fails or hits its limit, the app still saves and summarizes from the server copy. If the database itself is down, the error message tells you where the server copy is. Upload that file (or the one in your Downloads) later with **Upload a recording**.
