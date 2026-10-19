@@ -97,6 +97,7 @@ async function renderRecorder() {
     show("recLive");
     $("liveTab").textContent = rec.tabTitle ? `Tab: ${rec.tabTitle}` : "";
     show("micWarn", rec.micOk === false && (await getSettings()).useMic);
+    show("videoNote", !!rec.videoOk);
     const tick = () => ($("timer").textContent = fmtTime(Math.floor((Date.now() - rec.startedAt) / 1000)));
     tick();
     timerId = setInterval(tick, 1000);
@@ -109,6 +110,7 @@ async function renderRecorder() {
     show("recIdle");
     const s = await getSettings();
     $("useMic").checked = s.useMic;
+    $("useVideo").checked = s.useVideo;
     $("keepCopy").checked = s.keepCopy;
     [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const url = currentTab?.url || "";
@@ -135,6 +137,14 @@ $("useMic").onchange = async (e) => {
   renderMicButton();
 };
 $("keepCopy").onchange = (e) => chrome.storage.local.set({ keepCopy: e.target.checked });
+$("useVideo").onchange = (e) => chrome.storage.local.set({ useVideo: e.target.checked });
+// Shows the last saved file in its Meeting Notes folder (or Downloads if nothing was saved yet)
+$("folderBtn").onclick = async () => {
+  const { lastDownloadId } = await chrome.storage.local.get("lastDownloadId");
+  const [item] = lastDownloadId ? await chrome.downloads.search({ id: lastDownloadId, exists: true }) : [];
+  if (item) chrome.downloads.show(item.id);
+  else chrome.downloads.showDefaultFolder();
+};
 $("micBtn").onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL("mic.html") });
 
 $("startBtn").onclick = async () => {
@@ -239,7 +249,11 @@ function recordingSection(m, local) {
       el("button", {
         className: "link small",
         textContent: "Save file to Downloads",
-        onclick: () => chrome.downloads.download({ url: audioUrl, filename: local.name }),
+        onclick: async () => {
+          const name = local.name.includes("/") ? local.name : `Meeting Notes/${local.name}`;
+          const id = await chrome.downloads.download({ url: audioUrl, filename: name, conflictAction: "uniquify" });
+          chrome.storage.local.set({ lastDownloadId: id });
+        },
       }),
     );
   }

@@ -15,7 +15,7 @@ async function uploadToGemini(meetingId) {
   const { uploadUrl } = await api("/api/gemini-upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mimeType: saved.blob.type, size: saved.blob.size, name: saved.name }),
+    body: JSON.stringify({ mimeType: saved.blob.type, size: saved.blob.size, name: saved.name.split("/").pop() }),
   });
   const res = await fetch(uploadUrl, {
     method: "POST",
@@ -52,7 +52,7 @@ async function ensureOffscreen() {
   await chrome.offscreen.createDocument({
     url: "offscreen.html",
     reasons: ["USER_MEDIA"],
-    justification: "Record the meeting tab's audio and the microphone",
+    justification: "Record the meeting tab (audio and video) and the microphone",
   });
 }
 
@@ -64,7 +64,7 @@ function badge(text, color) {
 async function startRecording(tabId, title) {
   const cur = await getState();
   if (cur.phase === "recording" || cur.phase === "uploading") throw new Error("Already recording");
-  const { server, token, useMic, keepCopy } = await getSettings();
+  const { server, token, useMic, useVideo, keepCopy } = await getSettings();
   if (!token) throw new Error("Log in first (open the extension popup)");
 
   const tab = await chrome.tabs.get(tabId);
@@ -75,13 +75,14 @@ async function startRecording(tabId, title) {
     type: "start",
     streamId,
     useMic,
+    useVideo,
     keepCopy,
     server,
     token,
   });
   if (!res?.ok) throw new Error(res?.error || "Could not start recording");
 
-  await setState({ phase: "recording", startedAt: Date.now(), title: title || "", tabId, tabTitle: tab.title, micOk: res.micOk });
+  await setState({ phase: "recording", startedAt: Date.now(), title: title || "", tabId, tabTitle: tab.title, micOk: res.micOk, videoOk: res.videoOk });
   badge("REC", "#dc2626");
   return { micOk: res.micOk };
 }
@@ -122,9 +123,12 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       // From offscreen
       case "track-ended": // Meet tab closed or capture stopped
         return stopRecording();
-      case "save-copy":
-        chrome.downloads.download({ url: msg.url, filename: msg.name, saveAs: false });
+      case "save-copy": {
+        // Into Downloads/Meeting Notes/<date>/, remembered so the popup can open that folder
+        const downloadId = await chrome.downloads.download({ url: msg.url, filename: msg.name, saveAs: false, conflictAction: "uniquify" });
+        await chrome.storage.local.set({ lastDownloadId: downloadId });
         return;
+      }
       case "uploaded":
         await setState({ phase: "idle", lastMeetingId: msg.meeting.id });
         badge(""); // offscreen stays open so the Downloads copy (a blob URL there) can finish

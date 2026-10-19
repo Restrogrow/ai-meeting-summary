@@ -2,7 +2,7 @@
 const DEFAULT_SERVER = "https://ai-meeting-summary-five.vercel.app";
 
 async function getSettings() {
-  const s = await chrome.storage.local.get({ server: DEFAULT_SERVER, token: "", keepCopy: true, useMic: true });
+  const s = await chrome.storage.local.get({ server: DEFAULT_SERVER, token: "", keepCopy: true, useMic: true, useVideo: true });
   s.server = s.server.replace(/\/+$/, "");
   return s;
 }

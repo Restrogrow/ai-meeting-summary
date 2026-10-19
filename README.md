@@ -29,6 +29,8 @@ Install: `chrome://extensions` → turn on **Developer mode** → **Load unpacke
 3. Click **Stop & save** (or press **Alt+Shift+R** to start/stop). The recording uploads and opens in the popup → **Create summary**.
 4. To include your own voice, click **Allow microphone (one-time)** once.
 
+Turn on **Record screen (video)** to also save the Meet tab's video with everyone's audio. Files go to **Downloads › Meeting Notes › <date>** (`14-05 Weekly sync.webm` = audio, `14-05 Weekly sync (screen).webm` = video); **📂 Open recordings folder** in the popup opens it. Summaries use only the small audio file, so video doesn't add Gemini cost.
+
 Extension recordings stay **on your computer** (inside the extension, plus a copy in Downloads) — they are never uploaded to this server or Supabase, so there's no size limit on Vercel. Only the meeting title and summary go into the database. When you click **Create summary** or **Show full transcript**, the extension sends the recording straight to Gemini (the server only hands out a one-time upload link, so the API key stays secret); Gemini deletes it right after. Summaries for extension recordings can only be made from the computer that recorded them (or by picking the file from Downloads in the popup).
 
 ## Deploy on Hostinger (Node.js hosting)

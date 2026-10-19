@@ -34,15 +34,18 @@
         <button id="startBtn" class="btn primary full">● Record this tab</button>
         <p id="tabHint" class="hint"></p>
         <div class="opts">
+          <label><input type="checkbox" id="useVideo" /> Record screen (video)</label>
           <label><input type="checkbox" id="useMic" /> Include my mic</label>
-          <label><input type="checkbox" id="keepCopy" /> Save copy to Downloads</label>
+          <label><input type="checkbox" id="keepCopy" /> Save audio copy to Downloads</label>
         </div>
+        <button id="folderBtn" class="link small">📂 Open recordings folder</button>
         <button id="micBtn" class="link small" hidden>🎙️ Allow microphone (one-time)</button>
       </div>
       <div id="recLive" hidden>
         <div class="live"><span class="dot"></span> Recording <b id="timer">00:00</b></div>
         <p id="liveTab" class="hint"></p>
         <p id="micWarn" class="hint warn" hidden>Mic not included — only the tab's audio is recorded.</p>
+        <p id="videoNote" class="hint" hidden>🎥 Screen is being recorded too — saved to Downloads › Meeting Notes when you stop.</p>
         <button id="stopBtn" class="btn danger full">■ Stop & save</button>
       </div>
       <div id="recUploading" hidden>
