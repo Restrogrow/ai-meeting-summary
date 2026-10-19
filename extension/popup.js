@@ -65,7 +65,9 @@ $("loginBtn").onclick = async () => {
     $("loginBtn").disabled = false;
   }
 };
-$("password").onkeydown = (e) => e.key === "Enter" && $("loginBtn").click();
+$("password").onkeydown = (e) => {
+  if (e.key === "Enter") $("loginBtn").click();
+};
 
 function showLoginError(text) {
   $("loginError").textContent = text;
