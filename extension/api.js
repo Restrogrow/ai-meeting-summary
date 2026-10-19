@@ -1,5 +1,5 @@
 // Shared by popup, background and offscreen: settings + calls to the Meeting Notes server
-const DEFAULT_SERVER = "http://localhost:3000";
+const DEFAULT_SERVER = "https://ai-meeting-summary-five.vercel.app";
 
 async function getSettings() {
   const s = await chrome.storage.local.get({ server: DEFAULT_SERVER, token: "", keepCopy: true, useMic: true });

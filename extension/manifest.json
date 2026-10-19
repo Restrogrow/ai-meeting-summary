@@ -12,7 +12,7 @@
   },
   "background": { "service_worker": "background.js" },
   "permissions": ["tabCapture", "offscreen", "storage", "downloads", "notifications", "activeTab"],
-  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
+  "host_permissions": ["https://ai-meeting-summary-five.vercel.app/*", "http://localhost/*", "http://127.0.0.1/*"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "commands": {
     "toggle-recording": {

@@ -24,7 +24,7 @@ The `extension/` folder is a Chrome extension: record the Meet tab with one clic
 
 Install: `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick the `extension` folder → pin it.
 
-1. Click the icon → enter the server URL (`http://localhost:3000` or your Hostinger link) + team password.
+1. Click the icon → the server URL is already set to https://ai-meeting-summary-five.vercel.app (change it for localhost) + team password.
 2. Open your Meet tab → click the icon → **Record this tab**. You keep hearing the meeting; the icon shows **REC**. Close the popup if you like.
 3. Click **Stop & save** (or press **Alt+Shift+R** to start/stop). The recording uploads and opens in the popup → **Create summary**.
 4. To include your own voice, click **Allow microphone (one-time)** once.
