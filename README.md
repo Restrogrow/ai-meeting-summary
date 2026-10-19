@@ -18,6 +18,17 @@ Stack: Next.js (App Router) · Tailwind · Gemini API · Supabase (Postgres)
 3. Allow the microphone (so your own voice is included).
 4. After the meeting click **Stop & summarize**.
 
+## Chrome extension
+
+The `extension/` folder is a Chrome extension: record the Meet tab with one click (no tab picker), see recent meetings, create summaries, read action items and copy the summary — all from the toolbar.
+
+Install: `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick the `extension` folder → pin it.
+
+1. Click the icon → enter the server URL (`http://localhost:3000` or your Hostinger link) + team password.
+2. Open your Meet tab → click the icon → **Record this tab**. You keep hearing the meeting; the icon shows **REC**. Close the popup if you like.
+3. Click **Stop & save** (or press **Alt+Shift+R** to start/stop). The recording uploads and opens in the popup → **Create summary**.
+4. To include your own voice, click **Allow microphone (one-time)** once.
+
 ## Deploy on Hostinger (Node.js hosting)
 
 Needs a plan with Node.js apps (Business / Cloud web hosting, or a VPS).

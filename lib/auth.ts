@@ -10,8 +10,10 @@ export function authToken() {
     .digest("hex");
 }
 
+// Web app sends the cookie; the Chrome extension sends the same token as a header
 export function isAuthed(req: NextRequest) {
-  return req.cookies.get(AUTH_COOKIE)?.value === authToken();
+  const token = req.cookies.get(AUTH_COOKIE)?.value ?? req.headers.get("x-team-token");
+  return token === authToken();
 }
 
 export const unauthorized = () => Response.json({ error: "Not logged in" }, { status: 401 });

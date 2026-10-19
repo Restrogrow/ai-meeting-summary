@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="top">
+    <span class="brand">📝 Meeting Notes</span>
+    <span class="top-actions">
+      <button id="openApp" class="link" title="Open the full app">Open app ↗</button>
+      <button id="settingsBtn" class="link" title="Settings">⚙</button>
+    </span>
+  </header>
+
+  <!-- Login / settings -->
+  <section id="login" hidden>
+    <label>Server URL
+      <input id="server" placeholder="http://localhost:3000" />
+    </label>
+    <label>Team password
+      <input id="password" type="password" placeholder="Team password" />
+    </label>
+    <p id="loginError" class="error" hidden></p>
+    <button id="loginBtn" class="btn primary full">Log in</button>
+    <button id="logoutBtn" class="btn ghost full" hidden>Log out</button>
+  </section>
+
+  <!-- Main -->
+  <section id="main" hidden>
+    <div id="recCard" class="card">
+      <div id="recIdle">
+        <input id="title" placeholder="Meeting title (optional)" />
+        <button id="startBtn" class="btn primary full">● Record this tab</button>
+        <p id="tabHint" class="hint"></p>
+        <div class="opts">
+          <label><input type="checkbox" id="useMic" /> Include my mic</label>
+          <label><input type="checkbox" id="keepCopy" /> Save copy to Downloads</label>
+        </div>
+        <button id="micBtn" class="link small" hidden>🎙️ Allow microphone (one-time)</button>
+      </div>
+      <div id="recLive" hidden>
+        <div class="live"><span class="dot"></span> Recording <b id="timer">00:00</b></div>
+        <p id="liveTab" class="hint"></p>
+        <p id="micWarn" class="hint warn" hidden>Mic not included — only the tab's audio is recorded.</p>
+        <button id="stopBtn" class="btn danger full">■ Stop & save</button>
+      </div>
+      <div id="recUploading" hidden>
+        <div class="row"><span class="spin"></span> Saving recording…</div>
+      </div>
+      <div id="recFailed" hidden>
+        <p class="error">Upload failed: <span id="failMsg"></span></p>
+        <p class="hint">The recording is kept safe here (and in Downloads if enabled).</p>
+        <div class="row gap">
+          <button id="retryBtn" class="btn primary">Try again</button>
+          <button id="discardBtn" class="btn ghost">Discard</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="list-head">
+      <h2>Recent meetings</h2>
+      <button id="refreshBtn" class="link small">↻</button>
+    </div>
+    <ul id="list" class="list"></ul>
+  </section>
+
+  <!-- Meeting detail -->
+  <section id="detail" hidden>
+    <button id="backBtn" class="link small">← Back</button>
+    <h2 id="dTitle"></h2>
+    <p id="dDate" class="hint"></p>
+    <div id="dBody"></div>
+  </section>
+
+  <script src="api.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

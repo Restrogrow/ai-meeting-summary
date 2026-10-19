@@ -1,0 +1,82 @@
+// Records tab audio (+ mic) and uploads it. Offscreen documents only get chrome.runtime,
+// so the server URL and token arrive with the start message.
+let rec = null;
+let ctx = null;
+let streams = [];
+let pending = null; // { blob, name } kept until the server has it
+let conn = null; // { server, token }
+
+const toBackground = (msg) => chrome.runtime.sendMessage({ target: "background", ...msg });
+
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (msg.target !== "offscreen") return;
+  if (msg.type === "start") {
+    start(msg).then(reply, (e) => reply({ ok: false, error: e.message }));
+    return true;
+  }
+  if (msg.type === "stop") stop(msg.title);
+  if (msg.type === "retry" && pending) upload(msg.title);
+  if (msg.type === "discard") pending = null;
+  reply({ ok: true });
+});
+
+async function start({ streamId, useMic, keepCopy, server, token }) {
+  conn = { server, token };
+  const tab = await navigator.mediaDevices.getUserMedia({
+    audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
+  });
+  // Mic works only after it was allowed once on the extension's mic page
+  const mic = useMic ? await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null) : null;
+  streams = [tab, ...(mic ? [mic] : [])];
+
+  ctx = new AudioContext();
+  const dest = ctx.createMediaStreamDestination();
+  const tabSrc = ctx.createMediaStreamSource(tab);
+  tabSrc.connect(dest);
+  tabSrc.connect(ctx.destination); // capturing mutes the tab — play it back so you still hear the meeting
+  if (mic) ctx.createMediaStreamSource(mic).connect(dest);
+
+  const mimeType = ["audio/webm;codecs=opus", "audio/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+  rec = new MediaRecorder(dest.stream, { mimeType, audioBitsPerSecond: 32000 });
+  const chunks = [];
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  rec.onstop = () => {
+    streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    ctx.close();
+    const stamp = new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "-");
+    const name = `meeting-${stamp}.webm`;
+    pending = { blob: new Blob(chunks, { type: rec.mimeType || "audio/webm" }), name };
+    if (keepCopy) toBackground({ type: "save-copy", url: URL.createObjectURL(pending.blob), name });
+    upload(rec.title);
+  };
+  tab.getAudioTracks()[0].onended = () => toBackground({ type: "track-ended" });
+
+  rec.start(10_000);
+  return { ok: true, micOk: !!mic };
+}
+
+function stop(title) {
+  if (rec?.state !== "recording") return;
+  rec.title = title; // read by onstop
+  rec.stop();
+}
+
+async function upload(title) {
+  if (!pending) return;
+  const form = new FormData();
+  form.append("audio", pending.blob, pending.name);
+  form.append("title", title || "");
+  try {
+    const res = await fetch(`${conn.server}/api/meetings`, {
+      method: "POST",
+      headers: { "x-team-token": conn.token },
+      body: form,
+    });
+    const data = await res.json().catch(() => ({ error: `Server error (${res.status})` }));
+    if (!res.ok) throw new Error(data.error || `Server error (${res.status})`);
+    pending = null;
+    toBackground({ type: "uploaded", meeting: data });
+  } catch (e) {
+    toBackground({ type: "upload-failed", error: e.message || "Upload failed" });
+  }
+}
